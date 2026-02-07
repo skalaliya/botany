@@ -329,6 +329,11 @@ class WebhookDelivery(Base):
     attempt_count: Mapped[int] = mapped_column(nullable=False, default=0)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    dead_lettered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

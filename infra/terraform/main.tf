@@ -131,6 +131,17 @@ resource "google_pubsub_subscription" "events_subscriptions" {
   }
 }
 
+resource "google_pubsub_subscription" "dlq_replay_subscriptions" {
+  for_each = google_pubsub_topic.dlq
+  name     = "${each.value.name}-replay-sub"
+  topic    = each.value.id
+
+  retry_policy {
+    minimum_backoff = "30s"
+    maximum_backoff = "600s"
+  }
+}
+
 resource "google_artifact_registry_repository" "repo" {
   location      = var.region
   repository_id = "${local.name_prefix}-containers"
@@ -202,6 +213,20 @@ resource "google_cloud_run_v2_job" "analytics_job" {
   }
 }
 
+resource "google_cloud_run_v2_job" "webhook_worker_job" {
+  name     = "${local.name_prefix}-webhook-worker"
+  location = var.region
+
+  template {
+    template {
+      containers {
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.repo.repository_id}/webhook-worker:latest"
+      }
+      max_retries = 3
+    }
+  }
+}
+
 resource "google_monitoring_alert_policy" "error_rate" {
   display_name = "${local.name_prefix} API error rate"
   combiner     = "OR"
@@ -217,6 +242,46 @@ resource "google_monitoring_alert_policy" "error_rate" {
       aggregations {
         alignment_period   = "60s"
         per_series_aligner = "ALIGN_RATE"
+      }
+    }
+  }
+}
+
+resource "google_monitoring_alert_policy" "latency_p95" {
+  display_name = "${local.name_prefix} API latency p95"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Cloud Run request latencies"
+    condition_threshold {
+      filter          = "metric.type=\"run.googleapis.com/request_latencies\" AND resource.type=\"cloud_run_revision\""
+      duration        = "300s"
+      comparison      = "COMPARISON_GT"
+      threshold_value = 1.0
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_PERCENTILE_95"
+      }
+    }
+  }
+}
+
+resource "google_monitoring_alert_policy" "dlq_backlog" {
+  display_name = "${local.name_prefix} DLQ backlog"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "PubSub DLQ messages"
+    condition_threshold {
+      filter          = "metric.type=\"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.type=\"pubsub_subscription\""
+      duration        = "300s"
+      comparison      = "COMPARISON_GT"
+      threshold_value = 100
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MEAN"
       }
     }
   }

@@ -4,6 +4,8 @@ import json
 import logging
 from typing import Any
 
+from libs.common.tracing import get_trace_id
+
 SENSITIVE_KEYS = {
     "password",
     "token",
@@ -51,4 +53,6 @@ def configure_logging() -> logging.Logger:
 
 
 def log_event(logger: logging.Logger, message: str, event: dict[str, Any]) -> None:
-    logger.info(message, extra={"event": event})
+    enriched_event = dict(event)
+    enriched_event.setdefault("trace_id", get_trace_id())
+    logger.info(message, extra={"event": enriched_event})

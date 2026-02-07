@@ -43,6 +43,7 @@ from libs.common.models import (
 )
 from libs.common.rate_limit import InMemoryRateLimiter
 from libs.common.storage import get_storage_provider
+from libs.common.tracing import get_trace_id, set_trace_id
 from libs.schemas.api import (
     ActiveLearningCurationResponse,
     AecaValidateRequest,
@@ -85,7 +86,11 @@ from libs.schemas.api import (
     VehicleImportCaseCreateRequest,
     VehicleImportCaseResponse,
     WebhookDispatchRequest,
+    WebhookReplayRequest,
+    WebhookReplayResponse,
     WebhookSubscriptionRequest,
+    WebhookWorkerRunRequest,
+    WebhookWorkerRunResponse,
 )
 from modules.aeca.service import AecaService
 from modules.aeca.workflow import AecaWorkflowService
@@ -171,6 +176,11 @@ async def tenant_header_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
     timer = RequestTimer()
+    incoming_trace = request.headers.get("X-Trace-Id", "").strip()
+    if incoming_trace:
+        set_trace_id(incoming_trace)
+    else:
+        incoming_trace = get_trace_id()
     path = request.url.path
     if path.startswith("/api/v1") and not (
         path.startswith("/api/v1/auth")
@@ -196,7 +206,13 @@ async def tenant_header_middleware(
             )
         request.state.tenant_id = tenant_id
     response = await call_next(request)
-    metrics.record_request(duration_ms=timer.elapsed_ms(), status_code=response.status_code)
+    metrics.record_request(
+        method=request.method,
+        path=request.url.path,
+        duration_ms=timer.elapsed_ms(),
+        status_code=response.status_code,
+    )
+    response.headers["X-Trace-Id"] = incoming_trace
     return response
 
 
@@ -218,6 +234,8 @@ def metrics_snapshot() -> dict[str, object]:
         "total_requests": snapshot.total_requests,
         "failed_requests": snapshot.failed_requests,
         "avg_latency_ms": snapshot.avg_latency_ms,
+        "p95_latency_ms": snapshot.p95_latency_ms,
+        "per_route": snapshot.per_route,
     }
 
 
@@ -983,7 +1001,7 @@ def dispatch_webhook_event(
     context: TenantContext = Depends(get_tenant_context),
     _: AuthUser = Depends(require_roles("admin")),
 ) -> dict[str, int]:
-    count = webhook_service.dispatch_event(
+    enqueued = webhook_service.dispatch_event(
         db,
         tenant_id=context.tenant_id,
         event_type=payload.event_type,
@@ -996,10 +1014,62 @@ def dispatch_webhook_event(
         action="webhook.dispatch.requested",
         entity_type="webhook",
         entity_id=payload.event_type,
-        payload={"subscription_count": count},
+        payload={"delivery_enqueued": enqueued},
     )
     db.commit()
-    return {"subscriptions_targeted": count}
+    return {"deliveries_enqueued": enqueued}
+
+
+@app.post("/api/v1/webhooks/worker/run", response_model=WebhookWorkerRunResponse)
+def run_webhook_worker(
+    payload: WebhookWorkerRunRequest,
+    db: Session = Depends(get_db),
+    context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("admin")),
+) -> WebhookWorkerRunResponse:
+    outcome = webhook_service.process_delivery_queue(
+        db,
+        tenant_id=context.tenant_id,
+        batch_size=payload.batch_size,
+    )
+    audit_payload: dict[str, object] = {key: int(value) for key, value in outcome.items()}
+    create_audit_event(
+        db,
+        tenant_id=context.tenant_id,
+        actor_id=context.user.user_id,
+        action="webhook.worker.run",
+        entity_type="webhook_worker",
+        entity_id=context.tenant_id,
+        payload=audit_payload,
+    )
+    db.commit()
+    return WebhookWorkerRunResponse(**outcome)
+
+
+@app.post("/api/v1/webhooks/dlq/replay", response_model=WebhookReplayResponse)
+def replay_webhook_dlq(
+    payload: WebhookReplayRequest,
+    db: Session = Depends(get_db),
+    context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("admin")),
+) -> WebhookReplayResponse:
+    requeued = webhook_service.replay_dead_lettered(
+        db,
+        tenant_id=context.tenant_id,
+        delivery_ids=payload.delivery_ids or None,
+        limit=payload.limit,
+    )
+    create_audit_event(
+        db,
+        tenant_id=context.tenant_id,
+        actor_id=context.user.user_id,
+        action="webhook.dlq.replayed",
+        entity_type="webhook_delivery",
+        entity_id=context.tenant_id,
+        payload={"requeued": requeued},
+    )
+    db.commit()
+    return WebhookReplayResponse(requeued=requeued)
 
 
 @app.get("/api/v1/analytics/overview", response_model=AnalyticsOverviewResponse)

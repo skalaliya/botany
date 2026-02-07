@@ -87,6 +87,26 @@ class WebhookDispatchRequest(BaseModel):
     payload: dict[str, Any]
 
 
+class WebhookWorkerRunRequest(BaseModel):
+    batch_size: int = Field(default=100, ge=1, le=1000)
+
+
+class WebhookWorkerRunResponse(BaseModel):
+    processed: int
+    delivered: int
+    retried: int
+    dead_lettered: int
+
+
+class WebhookReplayRequest(BaseModel):
+    delivery_ids: list[str] = Field(default_factory=list)
+    limit: int = Field(default=100, ge=1, le=1000)
+
+
+class WebhookReplayResponse(BaseModel):
+    requeued: int
+
+
 class AwbValidateRequest(BaseModel):
     awb_number: str
     weight_kg: float
