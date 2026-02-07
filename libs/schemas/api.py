@@ -97,6 +97,19 @@ class AwbValidateResponse(BaseModel):
     messages: list[str]
 
 
+class AwbProviderSubmitRequest(BaseModel):
+    provider_key: str
+    awb_number: str
+    payload: dict[str, Any]
+
+
+class AwbProviderSubmitResponse(BaseModel):
+    provider: str
+    status: str
+    awb_number: str
+    external_id: Optional[str] = None
+
+
 class ThreeWayMatchRequest(BaseModel):
     invoice_amount: float
     contract_amount: float
@@ -107,6 +120,19 @@ class ThreeWayMatchRequest(BaseModel):
 class ThreeWayMatchResponse(BaseModel):
     matched: bool
     discrepancies: list[str]
+
+
+class FiarExportInvoiceRequest(BaseModel):
+    invoice_id: str
+    payload: dict[str, Any]
+
+
+class FiarExportInvoiceResponse(BaseModel):
+    provider: str
+    invoice_id: str
+    status: str
+    external_id: Optional[str] = None
+    error: Optional[str] = None
 
 
 class AnalyticsOverviewResponse(BaseModel):

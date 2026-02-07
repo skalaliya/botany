@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from libs.common.config import get_settings
 from libs.common.events import EventBus
 from libs.common.models import Document, ExtractedEntity, ValidationResult
 from libs.schemas.events import EventTypes
@@ -13,8 +14,14 @@ from services.validation.rules_engine import RulePack, ValidationRulesEngine
 class ValidationService:
     def __init__(self, event_bus: EventBus):
         self._event_bus = event_bus
+        settings = get_settings()
         self._rules_engine = ValidationRulesEngine(
-            pack=RulePack(id="default", version="2026-02-07"),
+            default_pack=RulePack(
+                id=settings.validation_rule_pack_id,
+                version=settings.validation_rule_pack_version,
+                description="Configured default validation rule pack",
+                regulation="Configured policy",
+            ),
         )
 
     def validate(
@@ -34,7 +41,7 @@ class ValidationService:
                     id=f"val_{uuid4().hex}",
                     document_id=document.id,
                     tenant_id=document.tenant_id,
-                    rule_code=f"{rule.code}@{rule.version}",
+                    rule_code=f"{rule.code}@{rule.pack_id}:{rule.version}",
                     passed=rule.passed,
                     severity=rule.severity,
                     message=f"{rule.message} ({rule.explanation})",

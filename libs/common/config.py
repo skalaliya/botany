@@ -45,6 +45,29 @@ class Settings(BaseSettings):
     documentai_processor_id: str = ""
     vertex_model_name: str = "gemini-2.0-flash"
     require_secret_manager_in_non_dev: bool = True
+    validation_rule_pack_id: str = "global-default"
+    validation_rule_pack_version: str = "2026-02-08"
+
+    integration_mode: str = "mock"
+    integration_timeout_seconds: int = 20
+
+    champ_base_url: str = ""
+    champ_client_id: str = ""
+    champ_token_secret_id: str = "champ-api-token"
+    ibs_base_url: str = ""
+    ibs_client_id: str = ""
+    ibs_token_secret_id: str = "ibs-api-token"
+    cargowise_base_url: str = ""
+    cargowise_client_id: str = ""
+    cargowise_token_secret_id: str = "cargowise-api-token"
+
+    abf_ics_base_url: str = ""
+    abf_ics_client_id: str = ""
+    abf_ics_token_secret_id: str = "abf-ics-api-token"
+
+    accounting_export_base_url: str = ""
+    accounting_export_client_id: str = ""
+    accounting_export_token_secret_id: str = "accounting-export-api-token"
 
     # TODO(owner:platform-security): Wire Identity Platform JWKS endpoint and key rotation policy.
     identity_platform_jwks_url: str = ""
@@ -61,6 +84,16 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "gcp ai backend requires gcp_project_id and documentai_processor_id"
             )
+        if self.integration_mode == "http":
+            required_http_endpoints = [
+                self.champ_base_url,
+                self.ibs_base_url,
+                self.cargowise_base_url,
+                self.abf_ics_base_url,
+                self.accounting_export_base_url,
+            ]
+            if any(not endpoint for endpoint in required_http_endpoints):
+                raise RuntimeError("integration_mode=http requires all external base URLs")
 
 
 @lru_cache(maxsize=1)

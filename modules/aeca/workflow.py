@@ -5,18 +5,20 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from libs.common.audit import create_audit_event
+from libs.common.config import get_settings
 from libs.common.events import EventBus
+from libs.common.integrations import IntegrationError
 from libs.common.models import ComplianceCheck, Export
 from libs.schemas.events import EventTypes
-from modules.aeca.adapters import MockAbfIcsAdapter
+from modules.aeca.adapters import ExportAuthorityAdapter, build_export_authority_adapter
 from modules.aeca.service import AecaService
 
 
 class AecaWorkflowService:
-    def __init__(self, event_bus: EventBus):
+    def __init__(self, event_bus: EventBus, adapter: ExportAuthorityAdapter | None = None):
         self._event_bus = event_bus
         self._service = AecaService()
-        self._adapter = MockAbfIcsAdapter()
+        self._adapter = adapter or build_export_authority_adapter(get_settings())
 
     def create_export_case(
         self,
@@ -80,8 +82,27 @@ class AecaWorkflowService:
         export_case: Export,
         payload: dict[str, object],
     ) -> dict[str, object]:
-        response = self._adapter.submit_export_case(export_case.export_ref, payload)
-        export_case.status = "submitted"
+        try:
+            response = self._adapter.submit_export_case(
+                tenant_id=tenant_id,
+                export_ref=export_case.export_ref,
+                payload=payload,
+            )
+            export_case.status = "submitted"
+        except IntegrationError as exc:
+            response = {"status": "failed", "error": str(exc)}
+            export_case.status = "submission_failed"
+            db.add(
+                ComplianceCheck(
+                    id=f"cmp_{uuid4().hex}",
+                    tenant_id=tenant_id,
+                    subject_type="export",
+                    subject_id=export_case.id,
+                    check_type="aeca.submission",
+                    result="fail",
+                    details={"error": str(exc)},
+                )
+            )
         self._event_bus.publish(
             EventTypes.EXPORT_SUBMISSION_UPDATED,
             {

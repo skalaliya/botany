@@ -26,6 +26,26 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
 def test_hardening_workflow_endpoints(client: TestClient) -> None:
     headers = _auth_headers(client)
 
+    awb_submit = client.post(
+        "/api/v1/awb/submit",
+        json={
+            "provider_key": "champ",
+            "awb_number": "123-12345678",
+            "payload": {"shipper": "Acme"},
+        },
+        headers=headers,
+    )
+    assert awb_submit.status_code == 200
+    assert awb_submit.json()["status"] == "accepted"
+
+    fiar_export = client.post(
+        "/api/v1/fiar/invoices/export",
+        json={"invoice_id": "inv-hard-1", "payload": {"amount": 100}},
+        headers=headers,
+    )
+    assert fiar_export.status_code == 200
+    assert fiar_export.json()["status"] in {"queued", "accepted", "exported"}
+
     export_ref = "EXP-HARD-001"
     create_export = client.post(
         "/api/v1/aeca/exports",

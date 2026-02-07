@@ -50,6 +50,8 @@ from libs.schemas.api import (
     AnalyticsOverviewResponse,
     AuditEventResponse,
     AviqmDecodeResponse,
+    AwbProviderSubmitRequest,
+    AwbProviderSubmitResponse,
     AwbValidateRequest,
     AwbValidateResponse,
     DgValidateRequest,
@@ -63,6 +65,8 @@ from libs.schemas.api import (
     ExportCaseCreateRequest,
     ExportCaseResponse,
     ExportSubmissionResponse,
+    FiarExportInvoiceRequest,
+    FiarExportInvoiceResponse,
     GlobalSearchResponse,
     IngestDocumentRequest,
     IngestDocumentResponse,
@@ -88,10 +92,12 @@ from modules.aeca.workflow import AecaWorkflowService
 from modules.aviqm.service import AviqmService
 from modules.aviqm.workflow import AviqmWorkflowService
 from modules.awb.service import AwbService
+from modules.awb.workflow import AwbWorkflowService
 from modules.dg.service import DangerousGoodsService
 from modules.discrepancy.service import DiscrepancyService
 from modules.discrepancy.workflow import DiscrepancyWorkflowService
 from modules.fiar.service import FiarService
+from modules.fiar.workflow import FiarWorkflowService
 from modules.station_analytics.service import StationAnalyticsService
 from services.analytics.active_learning import ActiveLearningService
 from services.analytics.bigquery_pipeline import BigQueryPipeline
@@ -128,7 +134,9 @@ analytics_service = AnalyticsService()
 active_learning_service = ActiveLearningService()
 bigquery_pipeline = BigQueryPipeline(settings)
 awb_service = AwbService()
+awb_workflow_service = AwbWorkflowService()
 fiar_service = FiarService()
+fiar_workflow_service = FiarWorkflowService()
 aeca_service = AecaService()
 aviqm_service = AviqmService()
 discrepancy_service = DiscrepancyService()
@@ -603,6 +611,33 @@ def validate_awb(
     return AwbValidateResponse(valid=valid, messages=messages)
 
 
+@app.post("/api/v1/awb/submit", response_model=AwbProviderSubmitResponse)
+def submit_awb_to_provider(
+    payload: AwbProviderSubmitRequest,
+    db: Session = Depends(get_db),
+    context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("operator", "admin")),
+) -> AwbProviderSubmitResponse:
+    try:
+        response = awb_workflow_service.submit_awb(
+            db,
+            tenant_id=context.tenant_id,
+            actor_id=context.user.user_id,
+            provider_key=payload.provider_key,
+            awb_number=payload.awb_number,
+            payload=payload.payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    db.commit()
+    return AwbProviderSubmitResponse(
+        provider=str(response.get("provider", payload.provider_key)),
+        status=str(response.get("status", "failed")),
+        awb_number=payload.awb_number,
+        external_id=str(response.get("external_id", "")) or None,
+    )
+
+
 @app.post("/api/v1/fiar/three-way-match", response_model=ThreeWayMatchResponse)
 def three_way_match(
     payload: ThreeWayMatchRequest,
@@ -616,6 +651,30 @@ def three_way_match(
         tolerance_percent=payload.tolerance_percent,
     )
     return ThreeWayMatchResponse(matched=matched, discrepancies=discrepancies)
+
+
+@app.post("/api/v1/fiar/invoices/export", response_model=FiarExportInvoiceResponse)
+def export_invoice_to_accounting(
+    payload: FiarExportInvoiceRequest,
+    db: Session = Depends(get_db),
+    context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("finance", "admin")),
+) -> FiarExportInvoiceResponse:
+    response = fiar_workflow_service.export_invoice(
+        db,
+        tenant_id=context.tenant_id,
+        actor_id=context.user.user_id,
+        invoice_id=payload.invoice_id,
+        payload=payload.payload,
+    )
+    db.commit()
+    return FiarExportInvoiceResponse(
+        provider=str(response.get("provider", "Accounting")),
+        invoice_id=payload.invoice_id,
+        status=str(response.get("status", "failed")),
+        external_id=str(response.get("external_id", "")) or None,
+        error=str(response.get("error", "")) or None,
+    )
 
 
 @app.post("/api/v1/aeca/validate", response_model=AecaValidateResponse)
