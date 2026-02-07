@@ -73,6 +73,9 @@ install_deps() {
 run_web_script_if_exists() {
   local script_name="$1"
   if [[ -f "apps/web/package.json" ]] && grep -q "\"${script_name}\"[[:space:]]*:" "apps/web/package.json"; then
+    if [[ "$script_name" == "build" ]]; then
+      rm -rf apps/web/.next
+    fi
     (cd apps/web && npm run "$script_name")
   fi
 }
