@@ -4,7 +4,8 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from libs.common.ai import DocumentExtractor, MockDocumentExtractor
+from libs.common.ai import DocumentExtractor, get_document_extractor
+from libs.common.config import get_settings
 from libs.common.events import EventBus
 from libs.common.models import Document, ExtractedEntity
 from libs.schemas.events import EventTypes
@@ -13,7 +14,7 @@ from libs.schemas.events import EventTypes
 class ExtractionService:
     def __init__(self, event_bus: EventBus, extractor: DocumentExtractor | None = None):
         self._event_bus = event_bus
-        self._extractor = extractor or MockDocumentExtractor()
+        self._extractor = extractor or get_document_extractor(get_settings())
 
     def extract(
         self,

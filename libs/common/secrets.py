@@ -32,5 +32,9 @@ def resolve_secret(env_name: str, secret_manager_id: str) -> str:
     if settings.secret_manager_enabled:
         return _fetch_from_secret_manager(secret_manager_id)
 
-    # TODO(owner:platform-security): enforce non-placeholder startup in staging/prod bootstrap checks.
+    if settings.environment.lower() in {"staging", "prod", "production"}:
+        raise RuntimeError(
+            f"secret {secret_manager_id} must be sourced from Secret Manager in non-dev environments"
+        )
+
     return f"{DEV_PLACEHOLDER_PREFIX}{secret_manager_id}"

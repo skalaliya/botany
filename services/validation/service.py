@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -8,13 +7,15 @@ from sqlalchemy.orm import Session
 from libs.common.events import EventBus
 from libs.common.models import Document, ExtractedEntity, ValidationResult
 from libs.schemas.events import EventTypes
-
-AWB_PATTERN = re.compile(r"^\d{3}-\d{8}$")
+from services.validation.rules_engine import RulePack, ValidationRulesEngine
 
 
 class ValidationService:
     def __init__(self, event_bus: EventBus):
         self._event_bus = event_bus
+        self._rules_engine = ValidationRulesEngine(
+            pack=RulePack(id="default", version="2026-02-07"),
+        )
 
     def validate(
         self,
@@ -25,51 +26,18 @@ class ValidationService:
         entities: list[ExtractedEntity],
     ) -> list[ValidationResult]:
         fields = {entity.field_name: entity.field_value for entity in entities}
+        rule_results = self._rules_engine.evaluate(doc_type=doc_type, fields=fields)
         results: list[ValidationResult] = []
-
-        if doc_type == "awb":
-            awb_number = fields.get("awb_number", "")
-            passed = bool(AWB_PATTERN.match(awb_number))
+        for rule in rule_results:
             results.append(
                 ValidationResult(
                     id=f"val_{uuid4().hex}",
                     document_id=document.id,
                     tenant_id=document.tenant_id,
-                    rule_code="awb.format",
-                    passed=passed,
-                    severity="high",
-                    message="AWB number must match XXX-XXXXXXXX",
-                )
-            )
-
-        if "weight_kg" in fields:
-            try:
-                weight = float(fields["weight_kg"])
-                passed = weight > 0
-            except ValueError:
-                passed = False
-            results.append(
-                ValidationResult(
-                    id=f"val_{uuid4().hex}",
-                    document_id=document.id,
-                    tenant_id=document.tenant_id,
-                    rule_code="shipment.weight",
-                    passed=passed,
-                    severity="medium",
-                    message="Weight must be a positive number",
-                )
-            )
-
-        if not results:
-            results.append(
-                ValidationResult(
-                    id=f"val_{uuid4().hex}",
-                    document_id=document.id,
-                    tenant_id=document.tenant_id,
-                    rule_code="generic.required_fields",
-                    passed=False,
-                    severity="high",
-                    message="No extractable required fields found",
+                    rule_code=f"{rule.code}@{rule.version}",
+                    passed=rule.passed,
+                    severity=rule.severity,
+                    message=f"{rule.message} ({rule.explanation})",
                 )
             )
 

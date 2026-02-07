@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     event_bus_backend: str = "memory"
     gcp_project_id: str = ""
     gcp_pubsub_topic_prefix: str = "nexuscargo"
+    gcp_location: str = "australia-southeast1"
 
     storage_backend: str = "local"
     storage_local_root: str = "/tmp/nexuscargo-storage"
@@ -40,8 +41,26 @@ class Settings(BaseSettings):
     webhook_signing_secret: str = Field(default="local-webhook-signing-secret", min_length=16)
     webhook_max_retries: int = 5
 
+    ai_backend: str = "mock"
+    documentai_processor_id: str = ""
+    vertex_model_name: str = "gemini-2.0-flash"
+    require_secret_manager_in_non_dev: bool = True
+
     # TODO(owner:platform-security): Wire Identity Platform JWKS endpoint and key rotation policy.
     identity_platform_jwks_url: str = ""
+
+    def validate_runtime_constraints(self) -> None:
+        non_dev = self.environment.lower() in {"staging", "prod", "production"}
+        if self.require_secret_manager_in_non_dev and non_dev and not self.secret_manager_enabled:
+            raise RuntimeError(
+                "secret_manager_enabled must be true in staging/prod environments"
+            )
+        if self.event_bus_backend == "pubsub" and not self.gcp_project_id:
+            raise RuntimeError("gcp_project_id is required when event_bus_backend=pubsub")
+        if self.ai_backend == "gcp" and (not self.gcp_project_id or not self.documentai_processor_id):
+            raise RuntimeError(
+                "gcp ai backend requires gcp_project_id and documentai_processor_id"
+            )
 
 
 @lru_cache(maxsize=1)

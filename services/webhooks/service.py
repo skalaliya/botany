@@ -3,17 +3,18 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from libs.common.audit import create_audit_event
 from libs.common.config import get_settings
 from libs.common.models import WebhookDelivery, WebhookSubscription
+from libs.common.secrets import resolve_secret
 
 
 class WebhookService:
@@ -86,9 +87,6 @@ class WebhookService:
 
         return len(subscriptions)
 
-    @retry(
-        wait=wait_exponential(multiplier=1, min=1, max=10), stop=stop_after_attempt(5), reraise=True
-    )
     def _deliver(
         self,
         target_url: str,
@@ -98,8 +96,9 @@ class WebhookService:
     ) -> None:
         settings = get_settings()
         body = json.dumps(payload).encode("utf-8")
+        signing_secret = resolve_secret("WEBHOOK_SIGNING_SECRET", "webhook-signing-secret")
         signature = hmac.new(
-            settings.webhook_signing_secret.encode("utf-8"),
+            signing_secret.encode("utf-8"),
             body,
             hashlib.sha256,
         ).hexdigest()
@@ -109,14 +108,20 @@ class WebhookService:
             "X-Nexus-Event": event_type,
             "X-Idempotency-Key": delivery.idempotency_key,
         }
-        delivery.attempt_count += 1
-        try:
-            response = httpx.post(target_url, content=body, headers=headers, timeout=10)
-            response.raise_for_status()
-            delivery.status = "delivered"
-            delivery.delivered_at = datetime.now(timezone.utc)
-            delivery.last_error = None
-        except Exception as exc:  # noqa: BLE001
-            delivery.status = "failed"
-            delivery.last_error = str(exc)
-            raise
+
+        for attempt in range(1, settings.webhook_max_retries + 1):
+            delivery.attempt_count = attempt
+            try:
+                response = httpx.post(target_url, content=body, headers=headers, timeout=10)
+                response.raise_for_status()
+                delivery.status = "delivered"
+                delivery.delivered_at = datetime.now(timezone.utc)
+                delivery.last_error = None
+                return
+            except Exception as exc:  # noqa: BLE001
+                delivery.status = "failed"
+                delivery.last_error = str(exc)
+                if attempt >= settings.webhook_max_retries:
+                    delivery.status = "dead_lettered"
+                    return
+                time.sleep(min(2 ** (attempt - 1), 10))

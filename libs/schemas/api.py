@@ -171,3 +171,75 @@ class DgValidateResponse(BaseModel):
 class ActiveLearningCurationResponse(BaseModel):
     records_curated: int
     output_uri: str
+
+
+class ExportCaseCreateRequest(BaseModel):
+    export_ref: str
+    destination_country: str
+    hs_code: str
+    required_declarations: list[str] = Field(default_factory=list)
+
+
+class ExportCaseResponse(BaseModel):
+    id: str
+    export_ref: str
+    destination_country: str
+    status: str
+
+
+class ExportSubmissionResponse(BaseModel):
+    export_id: str
+    provider_status: str
+
+
+class VehicleImportCaseCreateRequest(BaseModel):
+    case_ref: str
+    vin: str
+    expiry_date: Optional[str] = None
+    bmsb_risk_month: Optional[int] = None
+
+
+class VehicleImportCaseResponse(BaseModel):
+    id: str
+    case_ref: str
+    vin: str
+    status: str
+    expiry_date: Optional[str] = None
+
+
+class DiscrepancyCreateRequest(BaseModel):
+    shipment_id: str
+    declared_weight: float
+    actual_weight: float
+    declared_value: float
+    actual_value: float
+
+
+class DiscrepancyCreateResponse(BaseModel):
+    discrepancy_id: str
+    score: float
+    status: str
+
+
+class DisputeOpenResponse(BaseModel):
+    dispute_id: str
+    discrepancy_id: str
+    status: str
+
+
+class SearchResultItem(BaseModel):
+    entity_type: str
+    entity_id: str
+    label: str
+
+
+class GlobalSearchResponse(BaseModel):
+    items: list[SearchResultItem]
+
+
+class AuditEventResponse(BaseModel):
+    id: str
+    action: str
+    entity_type: str
+    entity_id: str
+    created_at: datetime
