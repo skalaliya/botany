@@ -71,9 +71,22 @@ jobs:
       - name: Build API image
         run: docker build -t nexuscargo-api:${{ github.sha }} -f ops/docker/api-gateway.Dockerfile .
 
+  infra_validate:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform fmt + validate
+        run: |
+          cd infra/terraform
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+
   security_scan:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, infra_validate]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -104,6 +117,16 @@ jobs:
           cd infra/terraform
           terraform init
           terraform apply -auto-approve -var project_id=${{ secrets.GCP_PROJECT_ID }} -var environment=staging
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run DB migrations (staging)
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+          alembic upgrade head
 
   deploy_prod:
     runs-on: ubuntu-latest
@@ -122,3 +145,15 @@ jobs:
           cd infra/terraform
           terraform init
           terraform apply -auto-approve -var project_id=${{ secrets.GCP_PROJECT_ID }} -var environment=prod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run DB migrations (prod)
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+          alembic upgrade head
+      - name: Rollback command reference
+        run: echo "Use ops/runbooks/rollback.md with image tag ${{ github.sha }} if post-deploy checks fail."

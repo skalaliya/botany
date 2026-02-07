@@ -28,12 +28,16 @@ class DiscrepancyWorkflowService:
         actual_weight: float,
         declared_value: float,
         actual_value: float,
+        route_risk_factor: float = 0.0,
+        historical_score_bias: float = 0.0,
     ) -> Discrepancy:
         score = self._service.detect_mismatch(
             declared_weight=declared_weight,
             actual_weight=actual_weight,
             declared_value=declared_value,
             actual_value=actual_value,
+            route_risk_factor=route_risk_factor,
+            historical_score_bias=historical_score_bias,
         )
         discrepancy = Discrepancy(
             id=f"dsp_{uuid4().hex}",
@@ -45,6 +49,8 @@ class DiscrepancyWorkflowService:
                 "weight_delta": score["weight_delta"],
                 "value_delta": score["value_delta"],
                 "mismatch": score["mismatch"],
+                "risk_level": score["risk_level"],
+                "explanations": score["explanations"],
             },
             status="open",
         )

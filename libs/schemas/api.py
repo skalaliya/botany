@@ -184,6 +184,8 @@ class DiscrepancyScoreRequest(BaseModel):
     actual_weight: float
     declared_value: float
     actual_value: float
+    route_risk_factor: float = 0.0
+    historical_score_bias: float = 0.0
 
 
 class DiscrepancyScoreResponse(BaseModel):
@@ -191,6 +193,8 @@ class DiscrepancyScoreResponse(BaseModel):
     anomaly_score: float
     weight_delta: float
     value_delta: float
+    risk_level: str
+    explanations: list[str]
 
 
 class StationThroughputRequest(BaseModel):
@@ -204,6 +208,23 @@ class StationThroughputResponse(BaseModel):
     sla_risk: float
 
 
+class StationKpiRequest(BaseModel):
+    throughput_per_hour: float
+    avg_dwell_minutes: float
+    delayed_shipments: int
+    total_shipments: int
+
+
+class StationKpiResponse(BaseModel):
+    throughput_per_hour: float
+    avg_dwell_minutes: float
+    delayed_shipments: int
+    total_shipments: int
+    bottleneck_indicator: str
+    sla_risk: float
+    risk_flag: str
+
+
 class DgValidateRequest(BaseModel):
     un_number: str
     packing_group: str
@@ -214,9 +235,39 @@ class DgValidateResponse(BaseModel):
     issues: list[str]
 
 
+class DgWorkflowValidateRequest(BaseModel):
+    document_id: str
+    un_number: str
+    packing_group: str
+
+
+class DgWorkflowValidateResponse(BaseModel):
+    check_id: str
+    valid: bool
+    issues: list[str]
+    rule_results: list[dict[str, Any]]
+    review_task_id: Optional[str] = None
+
+
 class ActiveLearningCurationResponse(BaseModel):
     records_curated: int
     output_uri: str
+
+
+class ModelVersionRegisterRequest(BaseModel):
+    domain: str
+    model_name: str
+    model_version: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelVersionResponse(BaseModel):
+    id: str
+    domain: str
+    model_name: str
+    model_version: str
+    status: str
+    rollback_of_id: Optional[str] = None
 
 
 class ExportCaseCreateRequest(BaseModel):
@@ -259,12 +310,15 @@ class DiscrepancyCreateRequest(BaseModel):
     actual_weight: float
     declared_value: float
     actual_value: float
+    route_risk_factor: float = 0.0
+    historical_score_bias: float = 0.0
 
 
 class DiscrepancyCreateResponse(BaseModel):
     discrepancy_id: str
     score: float
     status: str
+    risk_level: str
 
 
 class DisputeOpenResponse(BaseModel):

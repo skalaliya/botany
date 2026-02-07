@@ -374,3 +374,20 @@ class IdempotencyKey(Base):
     request_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     response_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ModelVersion(Base):
+    __tablename__ = "model_versions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    domain: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    rollback_of_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("model_versions.id"), nullable=True
+    )
+    model_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    deployed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

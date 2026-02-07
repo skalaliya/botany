@@ -4,6 +4,7 @@ import base64
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
+from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, or_, select
@@ -57,6 +58,8 @@ from libs.schemas.api import (
     AwbValidateResponse,
     DgValidateRequest,
     DgValidateResponse,
+    DgWorkflowValidateRequest,
+    DgWorkflowValidateResponse,
     DiscrepancyCreateRequest,
     DiscrepancyCreateResponse,
     DiscrepancyScoreRequest,
@@ -71,12 +74,16 @@ from libs.schemas.api import (
     GlobalSearchResponse,
     IngestDocumentRequest,
     IngestDocumentResponse,
+    ModelVersionRegisterRequest,
+    ModelVersionResponse,
     PagedDocuments,
     RefreshTokenRequest,
     ReviewCompleteRequest,
     ReviewTaskResponse,
     SearchResultItem,
     SignedUrlResponse,
+    StationKpiRequest,
+    StationKpiResponse,
     StationThroughputRequest,
     StationThroughputResponse,
     ThreeWayMatchRequest,
@@ -99,6 +106,7 @@ from modules.aviqm.workflow import AviqmWorkflowService
 from modules.awb.service import AwbService
 from modules.awb.workflow import AwbWorkflowService
 from modules.dg.service import DangerousGoodsService
+from modules.dg.workflow import DangerousGoodsWorkflowService
 from modules.discrepancy.service import DiscrepancyService
 from modules.discrepancy.workflow import DiscrepancyWorkflowService
 from modules.fiar.service import FiarService
@@ -106,6 +114,7 @@ from modules.fiar.workflow import FiarWorkflowService
 from modules.station_analytics.service import StationAnalyticsService
 from services.analytics.active_learning import ActiveLearningService
 from services.analytics.bigquery_pipeline import BigQueryPipeline
+from services.analytics.model_registry import ModelRegistryService
 from services.analytics.service import AnalyticsService
 from services.classification.service import ClassificationService
 from services.extraction.service import ExtractionService
@@ -147,9 +156,11 @@ aviqm_service = AviqmService()
 discrepancy_service = DiscrepancyService()
 station_analytics_service = StationAnalyticsService()
 dg_service = DangerousGoodsService()
+dg_workflow_service = DangerousGoodsWorkflowService(review_service)
 aeca_workflow_service = AecaWorkflowService(event_bus)
 aviqm_workflow_service = AviqmWorkflowService()
 discrepancy_workflow_service = DiscrepancyWorkflowService(event_bus)
+model_registry_service = ModelRegistryService()
 rate_limiter = InMemoryRateLimiter()
 metrics = InMemoryMetrics()
 
@@ -856,12 +867,16 @@ def score_discrepancy(
         actual_weight=payload.actual_weight,
         declared_value=payload.declared_value,
         actual_value=payload.actual_value,
+        route_risk_factor=payload.route_risk_factor,
+        historical_score_bias=payload.historical_score_bias,
     )
     return DiscrepancyScoreResponse(
         mismatch=bool(score["mismatch"]),
         anomaly_score=float(score["anomaly_score"]),
         weight_delta=float(score["weight_delta"]),
         value_delta=float(score["value_delta"]),
+        risk_level=str(score["risk_level"]),
+        explanations=[str(item) for item in score["explanations"]],
     )
 
 
@@ -881,12 +896,15 @@ def create_discrepancy(
         actual_weight=payload.actual_weight,
         declared_value=payload.declared_value,
         actual_value=payload.actual_value,
+        route_risk_factor=payload.route_risk_factor,
+        historical_score_bias=payload.historical_score_bias,
     )
     db.commit()
     return DiscrepancyCreateResponse(
         discrepancy_id=discrepancy.id,
         score=discrepancy.score,
         status=discrepancy.status,
+        risk_level=str(discrepancy.details.get("risk_level", "unknown")),
     )
 
 
@@ -934,6 +952,32 @@ def station_throughput(
     )
 
 
+@app.post(
+    "/api/v1/station-analytics/kpis",
+    response_model=StationKpiResponse,
+)
+def station_kpis(
+    payload: StationKpiRequest,
+    _context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("analyst", "admin")),
+) -> StationKpiResponse:
+    kpis = station_analytics_service.kpi_summary(
+        throughput_per_hour=payload.throughput_per_hour,
+        avg_dwell_minutes=payload.avg_dwell_minutes,
+        delayed_shipments=payload.delayed_shipments,
+        total_shipments=payload.total_shipments,
+    )
+    return StationKpiResponse(
+        throughput_per_hour=float(kpis["throughput_per_hour"]),
+        avg_dwell_minutes=float(kpis["avg_dwell_minutes"]),
+        delayed_shipments=int(kpis["delayed_shipments"]),
+        total_shipments=int(kpis["total_shipments"]),
+        bottleneck_indicator=str(kpis["bottleneck_indicator"]),
+        sla_risk=float(kpis["sla_risk"]),
+        risk_flag=str(kpis["risk_flag"]),
+    )
+
+
 @app.post("/api/v1/dg/validate", response_model=DgValidateResponse)
 def validate_dg_declaration(
     payload: DgValidateRequest,
@@ -945,6 +989,39 @@ def validate_dg_declaration(
         packing_group=payload.packing_group,
     )
     return DgValidateResponse(valid=valid, issues=issues)
+
+
+@app.post("/api/v1/dg/checks", response_model=DgWorkflowValidateResponse)
+def validate_dg_declaration_with_workflow(
+    payload: DgWorkflowValidateRequest,
+    db: Session = Depends(get_db),
+    context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("operator", "compliance", "admin")),
+) -> DgWorkflowValidateResponse:
+    result = dg_workflow_service.validate_and_record(
+        db,
+        tenant_id=context.tenant_id,
+        actor_id=context.user.user_id,
+        document_id=payload.document_id,
+        un_number=payload.un_number,
+        packing_group=payload.packing_group,
+    )
+    db.commit()
+    return DgWorkflowValidateResponse(
+        check_id=str(result["check_id"]),
+        valid=bool(result["valid"]),
+        issues=[str(item) for item in result["issues"]],
+        rule_results=[
+            {
+                "rule": str(rule_result["rule"]),
+                "passed": bool(rule_result["passed"]),
+                "message": str(rule_result["message"]),
+                "explanation": str(rule_result["explanation"]),
+            }
+            for rule_result in result["rule_results"]
+        ],
+        review_task_id=str(result["review_task_id"]) if result["review_task_id"] else None,
+    )
 
 
 @app.post(
@@ -973,6 +1050,115 @@ def curate_active_learning_dataset(
     return ActiveLearningCurationResponse(
         records_curated=records,
         output_uri=output_uri,
+    )
+
+
+@app.post(
+    "/api/v1/active-learning/models/register",
+    response_model=ModelVersionResponse,
+)
+def register_model_version(
+    payload: ModelVersionRegisterRequest,
+    db: Session = Depends(get_db),
+    context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+) -> ModelVersionResponse:
+    model_version = model_registry_service.register_model(
+        db,
+        tenant_id=context.tenant_id,
+        domain=payload.domain,
+        model_name=payload.model_name,
+        model_version=payload.model_version,
+        metadata=payload.metadata,
+    )
+    create_audit_event(
+        db,
+        tenant_id=context.tenant_id,
+        actor_id=context.user.user_id,
+        action="model_registry.registered",
+        entity_type="model_version",
+        entity_id=model_version.id,
+        payload={
+            "domain": payload.domain,
+            "model_name": payload.model_name,
+            "model_version": payload.model_version,
+        },
+    )
+    db.commit()
+    return ModelVersionResponse(
+        id=model_version.id,
+        domain=model_version.domain,
+        model_name=model_version.model_name,
+        model_version=model_version.model_version,
+        status=model_version.status,
+        rollback_of_id=model_version.rollback_of_id,
+    )
+
+
+@app.get(
+    "/api/v1/active-learning/models",
+    response_model=list[ModelVersionResponse],
+)
+def list_model_versions(
+    db: Session = Depends(get_db),
+    context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    domain: Optional[str] = Query(default=None),
+) -> list[ModelVersionResponse]:
+    models = model_registry_service.list_models(
+        db,
+        tenant_id=context.tenant_id,
+        domain=domain,
+    )
+    return [
+        ModelVersionResponse(
+            id=item.id,
+            domain=item.domain,
+            model_name=item.model_name,
+            model_version=item.model_version,
+            status=item.status,
+            rollback_of_id=item.rollback_of_id,
+        )
+        for item in models
+    ]
+
+
+@app.post(
+    "/api/v1/active-learning/models/{model_id}/rollback",
+    response_model=ModelVersionResponse,
+)
+def rollback_model_version(
+    model_id: str,
+    db: Session = Depends(get_db),
+    context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("admin")),
+) -> ModelVersionResponse:
+    try:
+        rollback_model = model_registry_service.rollback_model(
+            db,
+            tenant_id=context.tenant_id,
+            model_id=model_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    create_audit_event(
+        db,
+        tenant_id=context.tenant_id,
+        actor_id=context.user.user_id,
+        action="model_registry.rolled_back",
+        entity_type="model_version",
+        entity_id=rollback_model.id,
+        payload={"rollback_of_id": rollback_model.rollback_of_id},
+    )
+    db.commit()
+    return ModelVersionResponse(
+        id=rollback_model.id,
+        domain=rollback_model.domain,
+        model_name=rollback_model.model_name,
+        model_version=rollback_model.model_version,
+        status=rollback_model.status,
+        rollback_of_id=rollback_model.rollback_of_id,
     )
 
 
@@ -1104,3 +1290,12 @@ def run_station_transform(
     )
     db.commit()
     return {"outcome": outcome}
+
+
+@app.get("/api/v1/analytics/station-kpi/latest")
+def latest_station_kpi(
+    _db: Session = Depends(get_db),
+    _context: TenantContext = Depends(get_tenant_context),
+    _: AuthUser = Depends(require_roles("analyst", "admin")),
+) -> dict[str, object]:
+    return bigquery_pipeline.query_latest_station_kpi()
