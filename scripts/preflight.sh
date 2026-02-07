@@ -9,7 +9,7 @@ STACKS=()
 detect_stack() {
   STACKS=()
 
-  if [[ -f "package.json" ]]; then
+  if [[ -f "package.json" || -f "apps/web/package.json" ]]; then
     STACKS+=("node")
   fi
   if [[ -f "pnpm-lock.yaml" ]]; then
@@ -56,41 +56,37 @@ install_deps() {
     npm install
   fi
 
-  if [[ -f "pyproject.toml" && -f "poetry.lock" ]]; then
-    poetry install --no-interaction --no-root
+  if [[ -f "pyproject.toml" ]]; then
+    python3 -m pip install --upgrade pip
+    python3 -m pip install -e ".[dev]"
   elif [[ -f "requirements.txt" ]]; then
     python3 -m pip install -r requirements.txt
   fi
+
+  if [[ -f "apps/web/package-lock.json" ]]; then
+    (cd apps/web && npm ci)
+  elif [[ -f "apps/web/package.json" ]]; then
+    (cd apps/web && npm install)
+  fi
 }
 
-run_if_script_exists() {
+run_web_script_if_exists() {
   local script_name="$1"
-  if [[ -f "package.json" ]] && grep -q "\"${script_name}\"[[:space:]]*:" "package.json"; then
-    if [[ -f "pnpm-lock.yaml" ]]; then
-      pnpm run "$script_name"
-    elif [[ -f "yarn.lock" ]]; then
-      yarn "$script_name"
-    else
-      npm run "$script_name"
-    fi
+  if [[ -f "apps/web/package.json" ]] && grep -q "\"${script_name}\"[[:space:]]*:" "apps/web/package.json"; then
+    (cd apps/web && npm run "$script_name")
   fi
 }
 
 run_checks() {
-  run_if_script_exists "format:check"
-  run_if_script_exists "format"
-  run_if_script_exists "lint"
-  run_if_script_exists "typecheck"
-  run_if_script_exists "test"
-  run_if_script_exists "build"
-
   if [[ -f "pyproject.toml" ]]; then
-    if command -v ruff >/dev/null 2>&1; then
-      ruff check .
-    fi
-    if command -v pytest >/dev/null 2>&1; then
-      pytest -q
-    fi
+    python3 -m ruff check .
+    python3 -m mypy libs services modules apps/api-gateway tests
+    python3 -m pytest -q
+  fi
+
+  if [[ -f "apps/web/package.json" ]]; then
+    run_web_script_if_exists "lint"
+    run_web_script_if_exists "build"
   fi
 }
 
