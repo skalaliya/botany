@@ -97,6 +97,12 @@ python3 -m pytest
   - `12 passed`
   - coverage: `90.98%` on configured core scope
 - `./scripts/preflight.sh checks` -> pass (includes Next.js build)
+- API runtime smoke:
+  - `python3 -m uvicorn main:app --app-dir apps/api-gateway --host 127.0.0.1 --port 8099`
+  - `curl http://127.0.0.1:8099/healthz` -> `{\"status\":\"ok\"}`
+- Web runtime smoke:
+  - `cd apps/web && npm run dev -- --hostname 127.0.0.1 --port 3009`
+  - `curl http://127.0.0.1:3009` -> HTTP 200 and HTML response body
 
 ### Failed Gates
 - No P0/P1 open in implemented scope for this cycle.
