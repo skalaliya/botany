@@ -12,3 +12,9 @@
 6. First implementation pass prioritizes a runnable Phase 1 MVP spine with strict tenant scoping, audit hooks, idempotency, and review routing.
 7. Where functionality is partially implemented, every placeholder includes a TODO with explicit owner context and next action.
 8. Local execution environment currently exposes `python3` only; CI and container runtime remain pinned to Python 3.12 for deployment parity.
+
+## Delta (Cycle 2)
+
+1. GCP AI client libraries (`google-cloud-documentai`, `vertexai`) may be unavailable in local dev; extraction uses lazy imports with an explicit fallback mock extractor to preserve runnable local flows.
+2. Secret Manager is mandatory in non-dev environments for runtime secrets; local dev may use explicit env vars or deterministic development placeholders.
+3. BigQuery transform execution is enabled only outside `dev` and when `gcp_project_id` is configured.

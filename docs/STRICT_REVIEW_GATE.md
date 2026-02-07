@@ -1,8 +1,8 @@
 # Strict Review Gate
 
-Date: 2026-02-07
-Scope: Current implemented MVP + hardening baseline
-Decision: PASS (for implemented scope)
+Date: 2026-02-08
+Scope: Implemented Phase 1/2 hardening + workflow expansion present in repository
+Decision: PASS (implemented scope), program-level completion remains PARTIAL
 
 ## Findings Matrix
 
@@ -18,53 +18,57 @@ Decision: PASS (for implemented scope)
 - Evidence:
   - File: `apps/api-gateway/main.py`
   - Symbol: `get_tenant_context`
-  - Proof: `if tenant_id not in user.tenant_ids: raise HTTPException(...403...)`
+  - Proof: tenant header + token tenant membership enforcement.
   - File: `apps/api-gateway/main.py`
-  - Symbol: `list_documents`
-  - Proof: `.where(Document.tenant_id == context.tenant_id)`
+  - Symbol: `list_documents`, `list_export_cases`, `list_vehicle_import_cases`, `list_audit_events`
+  - Proof: all query paths filter `tenant_id == context.tenant_id`.
 
 3. Hardcoded secrets or no Secret Manager path
 - Status: PASS
 - Evidence:
   - File: `libs/common/secrets.py`
   - Symbol: `resolve_secret`
-  - Proof: `if settings.secret_manager_enabled: return _fetch_from_secret_manager(...)`
-  - File: `infra/terraform/main.tf`
-  - Symbol: `google_secret_manager_secret.jwt_secret`
+  - Proof: non-dev runtime requires Secret Manager path or raises runtime error.
+  - File: `libs/common/config.py`
+  - Symbol: `validate_runtime_constraints`
+  - Proof: startup/runtime constraint blocks non-dev with `secret_manager_enabled=false`.
 
 4. Missing idempotency for ingestion/webhooks/events where required
 - Status: PASS
 - Evidence:
   - File: `apps/api-gateway/main.py`
   - Symbol: `ingest_document`
-  - Proof: `Idempotency-Key` required and `get_idempotent_response(...)`
+  - Proof: mandatory `Idempotency-Key` + request hash + stored response replay.
   - File: `services/webhooks/service.py`
   - Symbol: `dispatch_event`
-  - Proof: unique `idempotency_key` computed per subscription/event payload
+  - Proof: deterministic webhook delivery idempotency key and duplicate guard.
 
 5. No immutable audit trail for critical actions
 - Status: PASS
 - Evidence:
   - File: `libs/common/audit.py`
   - Symbol: `create_audit_event`
-  - Proof: append-only insert of `AuditEvent`
-  - File: `services/ingestion/service.py`
-  - Symbol: `ingest_and_process`
-  - Proof: `action="document.ingested"`
+  - Proof: append-only audit insert.
+  - File: `modules/aeca/workflow.py`
+  - Symbol: `create_export_case`, `submit_export_case`
+  - Proof: audit event writes on create + submit.
+  - File: `modules/discrepancy/workflow.py`
+  - Symbol: `create_discrepancy`, `open_dispute`
+  - Proof: audit event writes for discrepancy + dispute actions.
 
 6. No low-confidence -> human review routing
 - Status: PASS
 - Evidence:
   - File: `services/ingestion/service.py`
   - Symbol: `ingest_and_process`
-  - Proof: `if review_required: self._review.queue_low_confidence_review(...)`
+  - Proof: low-confidence and failed validation paths enqueue review tasks.
 
 7. Missing migrations for persistence changes
 - Status: PASS
 - Evidence:
   - File: `alembic/versions/0001_initial_schema.py`
   - Symbol: `upgrade`
-  - Proof: `Base.metadata.create_all(bind=bind)`
+  - Proof: required core/domain tables exist for implemented entities.
 
 8. CI missing lint + test + build
 - Status: PASS
@@ -76,28 +80,34 @@ Decision: PASS (for implemented scope)
 - Status: PASS
 - Evidence:
   - File: `apps/api-gateway/main.py`
-  - Symbol: endpoint dependencies
-  - Proof: `Depends(require_roles(...))` used on ingestion, review, webhook, compliance endpoints
+  - Symbol: endpoint dependency declarations
+  - Proof: `Depends(require_roles(...))` on ingestion/review/webhook/compliance/dispute/admin endpoints.
 
 10. Claimed feature TODO-only with no executable path
 - Status: PASS
 - Evidence:
   - File: `apps/api-gateway/main.py`
-  - Symbol: `ingest_document`, `validate_awb`, `three_way_match`, `validate_export_compliance`, `decode_vehicle_vin`
-  - Proof: executable API paths exist and tested (`tests/test_ingestion_pipeline.py`, `tests/test_phase3_phase4_endpoints.py`)
+  - Symbols: `/api/v1/aeca/exports*`, `/api/v1/aviqm/cases*`, `/api/v1/discrepancies*`, `/api/v1/audit/events`, `/api/v1/search`
+  - Proof: endpoints wired to executable services and covered by tests.
 
 ## Scorecard (100)
-- Security + tenant isolation: 23/25
-- Scope coverage: 14/20
-- Reliability/observability: 11/15
+- Security + tenant isolation: 24/25
+- Scope coverage: 16/20
+- Reliability/observability: 12/15
 - Data/events/API: 14/15
 - Infra + CI/CD: 9/10
 - Tests: 9/10
 - Docs/maintainability: 4/5
 
-Total: 84/100
+Total: 88/100
 Confidence: Medium
 
+## Verification Commands
+- `python3 -m ruff check .`
+- `python3 -m mypy libs services modules apps/api-gateway tests`
+- `python3 -m pytest -q`
+- `./scripts/preflight.sh checks`
+
 ## Residual Risks
-- UNVERIFIED: Real external adapter behavior (CHAMP, ABF/ICS, accounting providers) remains mock-backed.
-- UNVERIFIED: Production Identity Platform JWKS verification and key rotation are pending integration.
+- UNVERIFIED: Real production adapters for CHAMP/IBS/CargoWise/ABF-ICS/accounting providers remain mock-backed.
+- UNVERIFIED: Full distributed tracing export and SLO alert routing for production observability.

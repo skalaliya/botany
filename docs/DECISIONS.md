@@ -24,3 +24,18 @@
 - Date: 2026-02-07
 - Decision: Upgrade web app from `next@15.1.7` to `next@16.1.6`.
 - Rationale: Removed a known vulnerability and achieved clean `npm audit` results.
+
+## D-006: Runtime-validated non-dev secret policy
+- Date: 2026-02-08
+- Decision: Enforce runtime constraints that require Secret Manager in staging/prod and block startup when this policy is violated.
+- Rationale: Prevents accidental deployment with plaintext-only secret sources.
+
+## D-007: Pluggable extraction backend with GCP-first adapter
+- Date: 2026-02-08
+- Decision: Introduce `DocumentExtractor` with `mock` and `gcp` backends, using Document AI + Vertex Gemini when `ai_backend=gcp`.
+- Rationale: Preserves local determinism while enabling production-aligned AI execution paths.
+
+## D-008: Versioned validation rule packs
+- Date: 2026-02-08
+- Decision: Move validation checks into a `ValidationRulesEngine` with explicit `RulePack` version metadata and explainable rule outputs.
+- Rationale: Enables traceable compliance behavior and safe rule evolution.

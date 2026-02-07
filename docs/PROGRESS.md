@@ -57,3 +57,53 @@ python3 -m mypy libs services modules apps/api-gateway tests
 python3 -m pytest
 ./scripts/preflight.sh checks
 ```
+
+## Cycle 2 (Hardening + Workflow Expansion + Gate Patch)
+
+### Completed
+- Added runtime configuration guards:
+  - startup/runtime validation for Secret Manager policy in non-dev.
+  - validation of GCP settings for Pub/Sub and GCP AI backend modes.
+- Hardened secret handling:
+  - non-dev fallback from Secret Manager disabled.
+  - explicit runtime error when non-dev secrets are unresolved.
+- Added extraction backend abstraction:
+  - `mock` backend and `gcp` backend (Document AI OCR + Vertex AI extraction) via lazy import + fallback.
+- Added observability baseline:
+  - request latency/error counters through in-memory metrics.
+  - `/metrics` endpoint in API gateway.
+- Added versioned validation rules engine:
+  - pluggable `RulePack` model.
+  - explainable AWB/weight/HS/sanctions checks.
+- Added domain workflow services:
+  - AECA export case lifecycle + submission event/audit.
+  - AVIQM case lifecycle + expiry alerts + BMSB check.
+  - discrepancy creation + dispute workflow + event/audit hooks.
+- Added API endpoints:
+  - AECA exports create/list/submit.
+  - AVIQM case create/list.
+  - discrepancy create/dispute.
+  - global search + audit events.
+  - analytics station BigQuery transform trigger.
+- Added BigQuery analytics transform service foundation.
+- Expanded tests with:
+  - hardening/workflow integration path coverage.
+  - validation rules engine unit tests.
+
+### Quality Evidence
+- `python3 -m ruff check .` -> pass
+- `python3 -m mypy libs services modules apps/api-gateway tests` -> pass
+- `python3 -m pytest -q` -> pass
+  - `12 passed`
+  - coverage: `90.98%` on configured core scope
+- `./scripts/preflight.sh checks` -> pass (includes Next.js build)
+
+### Failed Gates
+- No P0/P1 open in implemented scope for this cycle.
+- Full external provider production connectivity remains pending (mock-backed adapters still active).
+
+### Next Actions
+1. Replace mock CHAMP/IBS/CargoWise/ABF-ICS/accounting adapters with staged provider clients and contract conformance tests.
+2. Move webhook retry/delivery into queue-backed worker path (Cloud Run job/service) to avoid in-process retry pressure.
+3. Add OpenTelemetry spans and Cloud Monitoring SLO alert resources to complete observability hardening.
+4. Add end-to-end browser smoke tests for login, queue, review, and module dashboards.

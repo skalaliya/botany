@@ -19,3 +19,13 @@
 - Severity: Medium
 - Risk: Mock integrations may diverge from production partner API semantics.
 - Mitigation: Add contract snapshots and staging smoke tests against sandbox/provider mocks with parity checks.
+
+## R-005: GCP AI response schema instability
+- Severity: Medium
+- Risk: Vertex responses can deviate from strict JSON shape and require defensive parsing.
+- Mitigation: Enforce strict JSON prompt contract, reject malformed outputs, and route low-confidence/invalid extraction to review.
+
+## R-006: Webhook delivery durability in high-volume failures
+- Severity: Medium
+- Risk: In-process retry loops can delay worker throughput during persistent endpoint failures.
+- Mitigation: Keep `dead_lettered` terminal state, move delivery retries into dedicated Cloud Run job/queue worker in next cycle.
