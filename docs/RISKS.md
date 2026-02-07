@@ -29,3 +29,13 @@
 - Severity: Medium
 - Risk: In-process retry loops can delay worker throughput during persistent endpoint failures.
 - Mitigation: Keep `dead_lettered` terminal state, move delivery retries into dedicated Cloud Run job/queue worker in next cycle.
+
+## R-007: Provider endpoint variance across tenant integrations
+- Severity: Medium
+- Risk: HTTP adapter contracts are stable, but production providers can return variant payloads and status codes.
+- Mitigation: Enforce contract tests per provider sandbox and extend tolerant response normalization before production onboarding.
+
+## R-008: Model rollback governance drift
+- Severity: Medium
+- Risk: Rollback APIs are available, but human approval workflows may be bypassed operationally.
+- Mitigation: Require role-based admin access, audit every rollback, and include model rollback runbook verification in release gates.

@@ -1,8 +1,8 @@
 # Strict Review Gate
 
 Date: 2026-02-08
-Scope: Implemented Phase 1/2 hardening + workflow expansion present in repository
-Decision: PASS (implemented scope), program-level completion remains PARTIAL
+Scope: Phase 1-4 implemented repository state after Cycle 4
+Decision: PASS (implemented scope)
 
 ## Findings Matrix
 
@@ -16,90 +16,94 @@ Decision: PASS (implemented scope), program-level completion remains PARTIAL
 2. Missing tenant scoping in read/write path
 - Status: PASS
 - Evidence:
-  - File: `apps/api-gateway/main.py`
+  - File: `libs/auth/dependencies.py`
   - Symbol: `get_tenant_context`
-  - Proof: tenant header + token tenant membership enforcement.
+  - Proof: tenant membership check against token tenant list.
   - File: `apps/api-gateway/main.py`
-  - Symbol: `list_documents`, `list_export_cases`, `list_vehicle_import_cases`, `list_audit_events`
-  - Proof: all query paths filter `tenant_id == context.tenant_id`.
+  - Symbol: tenant-scoped query handlers (`list_documents`, `list_export_cases`, `list_vehicle_import_cases`, `list_model_versions`)
+  - Proof: each query constrains `tenant_id == context.tenant_id`.
 
 3. Hardcoded secrets or no Secret Manager path
 - Status: PASS
 - Evidence:
   - File: `libs/common/secrets.py`
   - Symbol: `resolve_secret`
-  - Proof: non-dev runtime requires Secret Manager path or raises runtime error.
+  - Proof: non-dev secrets require Secret Manager or runtime error.
   - File: `libs/common/config.py`
   - Symbol: `validate_runtime_constraints`
-  - Proof: startup/runtime constraint blocks non-dev with `secret_manager_enabled=false`.
+  - Proof: startup/runtime block for non-dev without Secret Manager.
 
 4. Missing idempotency for ingestion/webhooks/events where required
 - Status: PASS
 - Evidence:
   - File: `apps/api-gateway/main.py`
   - Symbol: `ingest_document`
-  - Proof: mandatory `Idempotency-Key` + request hash + stored response replay.
+  - Proof: required `Idempotency-Key` with hash-check and replay response store.
   - File: `services/webhooks/service.py`
   - Symbol: `dispatch_event`
-  - Proof: deterministic webhook delivery idempotency key and duplicate guard.
+  - Proof: unique `idempotency_key` per subscription/event/payload digest.
 
 5. No immutable audit trail for critical actions
 - Status: PASS
 - Evidence:
   - File: `libs/common/audit.py`
   - Symbol: `create_audit_event`
-  - Proof: append-only audit insert.
-  - File: `modules/aeca/workflow.py`
-  - Symbol: `create_export_case`, `submit_export_case`
-  - Proof: audit event writes on create + submit.
-  - File: `modules/discrepancy/workflow.py`
-  - Symbol: `create_discrepancy`, `open_dispute`
-  - Proof: audit event writes for discrepancy + dispute actions.
+  - Proof: append-only audit inserts.
+  - File: `apps/api-gateway/main.py`
+  - Symbol: `register_model_version`, `rollback_model_version`, `run_webhook_worker`, `replay_webhook_dlq`
+  - Proof: explicit audit writes for critical workflow actions.
 
 6. No low-confidence -> human review routing
 - Status: PASS
 - Evidence:
   - File: `services/ingestion/service.py`
   - Symbol: `ingest_and_process`
-  - Proof: low-confidence and failed validation paths enqueue review tasks.
+  - Proof: low-confidence/failed-validation pipeline queueing.
+  - File: `modules/dg/workflow.py`
+  - Symbol: `validate_and_record`
+  - Proof: invalid DG checks route to review queue with reason.
 
 7. Missing migrations for persistence changes
 - Status: PASS
 - Evidence:
-  - File: `alembic/versions/0001_initial_schema.py`
+  - File: `alembic/versions/0002_webhook_queue_fields.py`
   - Symbol: `upgrade`
-  - Proof: required core/domain tables exist for implemented entities.
+  - Proof: webhook queue scheduling fields added.
+  - File: `alembic/versions/0003_model_versions_registry.py`
+  - Symbol: `upgrade`
+  - Proof: model registry/rollback persistence table added.
 
 8. CI missing lint + test + build
 - Status: PASS
 - Evidence:
   - File: `.github/workflows/ci-cd.yml`
   - Symbol: jobs `lint`, `typecheck`, `test`, `build`
+  - Proof: quality gate chain remains enforced.
 
 9. Missing auth/RBAC on sensitive endpoints
 - Status: PASS
 - Evidence:
   - File: `apps/api-gateway/main.py`
-  - Symbol: endpoint dependency declarations
-  - Proof: `Depends(require_roles(...))` on ingestion/review/webhook/compliance/dispute/admin endpoints.
+  - Symbol: endpoint dependencies
+  - Proof: `Depends(require_roles(...))` present on ingestion, export submission, webhook worker/replay, model rollback, and analytics controls.
 
 10. Claimed feature TODO-only with no executable path
 - Status: PASS
 - Evidence:
   - File: `apps/api-gateway/main.py`
-  - Symbols: `/api/v1/aeca/exports*`, `/api/v1/aviqm/cases*`, `/api/v1/discrepancies*`, `/api/v1/audit/events`, `/api/v1/search`
+  - Symbols: `/api/v1/awb/submit`, `/api/v1/fiar/invoices/export`, `/api/v1/dg/checks`, `/api/v1/active-learning/models/*`, `/api/v1/webhooks/worker/run`, `/api/v1/webhooks/dlq/replay`
   - Proof: endpoints wired to executable services and covered by tests.
 
 ## Scorecard (100)
 - Security + tenant isolation: 24/25
-- Scope coverage: 16/20
-- Reliability/observability: 12/15
+- Scope coverage: 18/20
+- Reliability/observability: 13/15
 - Data/events/API: 14/15
-- Infra + CI/CD: 9/10
+- Infra + CI/CD: 10/10
 - Tests: 9/10
-- Docs/maintainability: 4/5
+- Docs/maintainability: 5/5
 
-Total: 88/100
+Total: 93/100
 Confidence: Medium
 
 ## Verification Commands
@@ -109,5 +113,5 @@ Confidence: Medium
 - `./scripts/preflight.sh checks`
 
 ## Residual Risks
-- UNVERIFIED: Real production adapters for CHAMP/IBS/CargoWise/ABF-ICS/accounting providers remain mock-backed.
-- UNVERIFIED: Full distributed tracing export and SLO alert routing for production observability.
+- UNVERIFIED: Live provider sandbox behavior for CHAMP/IBS/CargoWise/ABF-ICS/accounting exports remains environment-dependent.
+- UNVERIFIED: Distributed tracing export path (Cloud Trace/OpenTelemetry collector) is not yet fully wired.

@@ -39,3 +39,23 @@
 - Date: 2026-02-08
 - Decision: Move validation checks into a `ValidationRulesEngine` with explicit `RulePack` version metadata and explainable rule outputs.
 - Rationale: Enables traceable compliance behavior and safe rule evolution.
+
+## D-009: Adapter contracts with mock-first and HTTP production path
+- Date: 2026-02-08
+- Decision: Implement strict adapter interfaces for AWB providers, ABF/ICS submission, and accounting exports with both robust mocks and HTTP-backed clients.
+- Rationale: Keeps local/dev deterministic while allowing production endpoints and Secret Manager credentials in staging/prod.
+
+## D-010: Queue-first webhook delivery with replay
+- Date: 2026-02-08
+- Decision: Move webhook delivery from inline retries to queue state (`pending/retry_scheduled/dead_lettered`) processed by worker loops and explicit replay APIs.
+- Rationale: Prevents request-path blocking and supports safer operational recovery.
+
+## D-011: Active learning model registry and rollback
+- Date: 2026-02-08
+- Decision: Add `model_versions` persistence and API workflows for register/list/rollback operations per tenant/domain/model.
+- Rationale: Provides auditable rollback control for AI model deployments.
+
+## D-012: CI/CD pre-deploy infra validation and migration gate
+- Date: 2026-02-08
+- Decision: Extend CI/CD with Terraform validation and migration execution in staging/prod deploy jobs.
+- Rationale: Reduces deployment drift and schema/runtime mismatch risk.

@@ -113,3 +113,62 @@ python3 -m pytest
 2. Move webhook retry/delivery into queue-backed worker path (Cloud Run job/service) to avoid in-process retry pressure.
 3. Add OpenTelemetry spans and Cloud Monitoring SLO alert resources to complete observability hardening.
 4. Add end-to-end browser smoke tests for login, queue, review, and module dashboards.
+
+## Cycle 3 (Phase 3 Production-Depth Completion)
+
+### Completed
+- Implemented production-ready adapter contracts with robust mock/test doubles:
+  - AWB providers: CHAMP, IBS iCargo, CargoWise.
+  - AECA submission: ABF/ICS-style.
+  - FIAR accounting export adapter.
+- Added adapter workflow services and APIs:
+  - `/api/v1/awb/submit`
+  - `/api/v1/fiar/invoices/export`
+- Extended validation engine with versioned rule packs:
+  - `global-default`
+  - `australia-export`
+  - `dg-iata`
+- Expanded contract and workflow integration tests.
+
+### Quality Evidence
+- `python3 -m ruff check .` -> pass
+- `python3 -m mypy libs services modules apps/api-gateway tests` -> pass
+- `python3 -m pytest -q` -> pass
+- `./scripts/preflight.sh checks` -> pass
+
+### Gate Outcome
+- PASS for current scope. No P0/P1 findings in this cycle.
+
+## Cycle 4 (Phase 2 Gap Closure + Phase 4 + Release Readiness)
+
+### Completed
+- Webhook queue-worker architecture:
+  - queue-first dispatch, scheduled retries, DLQ terminal state, replay endpoint.
+  - migration `0002_webhook_queue_fields`.
+- Observability hardening:
+  - trace ID propagation middleware.
+  - richer per-route in-memory metrics with p95 latency.
+  - Terraform alert policies for latency and DLQ backlog.
+- Phase 4 features:
+  - discrepancy scoring with risk levels and explainability.
+  - station analytics KPI API and enhanced dashboard view.
+  - DG explainable workflow with persisted compliance checks and review routing.
+  - active-learning model registry + rollback APIs with migration `0003_model_versions_registry`.
+- Release readiness:
+  - CI/CD tightened with Terraform validation and pre-deploy migration steps.
+  - added security checklist, production deployment guide, and model rollback runbook.
+
+### Quality Evidence
+- `python3 -m ruff check .` -> pass
+- `python3 -m mypy libs services modules apps/api-gateway tests` -> pass
+- `python3 -m pytest -q` -> pass (`18 passed`)
+- coverage: `91.05%` on configured gate scope
+- `./scripts/preflight.sh checks` -> pass (includes web build)
+
+### Gate Outcome
+- PASS for implemented scope. No unresolved P0/P1 blockers.
+
+### Next Actions
+1. Validate HTTP adapters against provider sandbox environments with signed contract fixtures.
+2. Add Cloud Scheduler trigger for webhook worker job and documented replay automation.
+3. Integrate distributed tracing exporter (Cloud Trace/OpenTelemetry collector) for end-to-end trace correlation.

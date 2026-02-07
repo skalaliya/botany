@@ -18,3 +18,9 @@
 1. GCP AI client libraries (`google-cloud-documentai`, `vertexai`) may be unavailable in local dev; extraction uses lazy imports with an explicit fallback mock extractor to preserve runnable local flows.
 2. Secret Manager is mandatory in non-dev environments for runtime secrets; local dev may use explicit env vars or deterministic development placeholders.
 3. BigQuery transform execution is enabled only outside `dev` and when `gcp_project_id` is configured.
+
+## Delta (Cycle 3-4)
+
+1. External partner APIs remain variable by tenant/provider; adapters are production-capable HTTP clients with strict contracts and robust mocks, but real credentials/endpoints are environment-specific.
+2. Webhook dispatch is now queue-first; delivery attempts are expected to run in worker loops (API-triggered or Cloud Run job) rather than inline request paths.
+3. Active-learning rollout assumes a tenant-scoped model registry lifecycle (`register -> list -> rollback`) with auditability and operator approval controls.
